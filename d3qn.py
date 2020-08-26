@@ -1,14 +1,20 @@
 import tensorflow as tf
+import tensorflow_probability as tfp
 from tensorflow import keras
 import numpy as np
 from replay_buffer import ReplayBuffer, PriorityExperienceReplay
 
 class D3QN(keras.Model):
-    def __init__(self, model, n_actions, lr=1e-4):
+    def __init__(self, model, n_actions, lr=1e-4, is_noisy=False):
         super(D3QN, self).__init__()
         self.model = model
-        self.V = keras.layers.Dense(1, activation=None)
-        self.A = keras.layers.Dense(n_actions, activation=None)
+        self.is_noisy = is_noisy
+        if is_noisy:
+            self.V = keras.layers.DenseFlipout(1, activation=None)
+            self.A = keras.layers.DenseFlipout(n_actions, activation=None)
+        else:
+            self.V = keras.layers.Dense(1, activation=None)
+            self.A = keras.layers.Dense(n_actions, activation=None)
 
         self.opt = tf.keras.optimizers.Adam(lr=lr)
 
@@ -48,6 +54,8 @@ class D3QN(keras.Model):
         with tf.GradientTape() as tape:
             q = self.call(x)
             loss = self.loss_func(y, q, weights=weights)
+            if self.is_noisy:
+                loss = loss+self.losses
 
         grads = tape.gradient(loss, self.trainable_variables)
         self.opt.apply_gradients(zip(grads, self.model.trainable_variables))
