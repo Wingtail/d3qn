@@ -1,2 +1,2 @@
-# d3qn-tf
+# D3QN
 A Tensorflow implementation of Dueling Double Deep Q Network. 
