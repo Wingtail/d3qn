@@ -1,4 +1,6 @@
 import numpy as np
+from queue import Queue
+from segment_tree import DynamicSegmentTree
 
 class ReplayBuffer():
     def __init__(self, mem_size, obs_shape):
@@ -44,3 +46,28 @@ class ReplayBuffer():
 
     def sample_buffer(self, batch_size):
         return self.uniform_sampling(batch_size)
+
+class PriorityExperienceReplay(ReplayBuffer):
+    def __init__(self, mem_size, obs_shape, alpha=0.4, beta=0.4):
+        super(PriorityExperienceReplay, self).__init__(mem_size, obs_shape)
+        self.segment_tree = DynamicSegmentTree(alpha=alpha, beta=beta)
+
+    def store_transition(self, obs, action, reward, new_obs, done):
+        index = super().store_transition(obs, action, reward, new_obs, done)
+        self.segment_tree.update_node(index)
+
+    def sample_buffer(self, batch_size):
+        index, weight = self.segment_tree.sample(batch_size)
+
+        obs = self.obs_memory[index]
+        action = self.action_memory[index]
+        reward = self.reward_memory[index]
+        new_obs = self.new_obs_memory[index]
+        done = self.done_memory[index]
+
+        return obs, action, reward, new_obs, done, index, weight
+
+    def update_priority(self, index, priority):
+        assert len(index) == len(priority)
+        for i in range(len(index)):
+            self.segment_tree.update_node(index[i], priority=priority[i])

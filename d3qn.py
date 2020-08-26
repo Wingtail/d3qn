@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 import numpy as np
-from replay_buffer import ReplayBuffer
+from replay_buffer import ReplayBuffer, PriorityExperienceReplay
 
 class D3QN(keras.Model):
     def __init__(self, model, n_actions, lr=1e-4):
@@ -53,7 +53,7 @@ class D3QN(keras.Model):
         self.opt.apply_gradients(zip(grads, self.model.trainable_variables))
 
 class Agent():
-    def __init__(self, eval_model, next_model, lr, n_actions, obs_shape, epsilon=1.0, gamma=0.99, batch_size=64, epsilon_dec=1e-3, eps_min=0.01, mem_size=1000000, replace=100, test_mode=False, save_weight_name="d3qn"):
+    def __init__(self, eval_model, next_model, lr, n_actions, obs_shape, epsilon=1.0, gamma=0.99, batch_size=64, epsilon_dec=1e-3, eps_min=0.01, mem_size=1000000, replace=100, test_mode=False, is_per=True, per_alpha=0.6, per_beta=0.4, save_weight_name="d3qn"):
         self.action_space = list(range(n_actions))
         self.n_actions = n_actions
         self.gamma = gamma
@@ -72,7 +72,13 @@ class Agent():
 
         self.learn_step_counter = 0
 
-        self.memory = ReplayBuffer(mem_size, obs_shape)
+        self.is_per = is_per
+
+        if is_per:
+            self.memory = PriorityExperienceReplay(mem_size, obs_shape, alpha=per_alpha, beta=per_beta)
+        else:
+            self.memory = ReplayBuffer(mem_size, obs_shape)
+
         self.q_eval = D3QN(eval_model, n_actions, lr=lr)
         self.q_next = D3QN(next_model, n_actions, lr=lr)
 
@@ -108,8 +114,10 @@ class Agent():
             self.q_next.set_weights(self.q_eval.get_weights())
 
         q_target = self.q_eval.predict(obs)
-
         q_next = self.q_next.predict(new_obs)
+
+        if self.is_per:
+            td_error = np.copy(q_target)
 
         max_actions = np.argmax(self.q_eval.predict(new_obs), axis=1)
 
@@ -117,6 +125,11 @@ class Agent():
             q_target[idx, actions[idx]] = rewards[idx] + self.gamma*q_next[idx, max_actions[idx]]*(1-int(dones[idx]))
 
         self.q_eval.train_func(obs, q_target, weights=weights)
+
+        if self.is_per:
+            td_error = np.sum(np.abs(q_target-td_error), axis=-1)
+            self.memory.update_priority(index, td_error)
+
         self.learn_step_counter += 1
 
     def save_model(self, model_name=None):
